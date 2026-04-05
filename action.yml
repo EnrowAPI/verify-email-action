@@ -1,0 +1,106 @@
+name: 'Verify Email - Enrow'
+description: 'Verify if an email address is deliverable'
+
+branding:
+  icon: 'check-circle'
+  color: 'green'
+
+inputs:
+  api_key:
+    description: 'Your Enrow API key'
+    required: true
+  email:
+    description: 'Email address to verify'
+    required: true
+  wait:
+    description: 'Poll until the result is ready (true/false)'
+    required: false
+    default: 'true'
+
+outputs:
+  qualification:
+    description: 'Result qualification (valid, invalid)'
+    value: ${{ steps.result.outputs.qualification }}
+  id:
+    description: 'The verification ID'
+    value: ${{ steps.result.outputs.id }}
+  raw:
+    description: 'Full JSON response'
+    value: ${{ steps.result.outputs.raw }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Verify email
+      id: result
+      shell: bash
+      env:
+        API_KEY: ${{ inputs.api_key }}
+        EMAIL: ${{ inputs.email }}
+        WAIT: ${{ inputs.wait }}
+      run: |
+        set -euo pipefail
+
+        PAYLOAD=$(jq -n --arg email "$EMAIL" '{email: $email}')
+
+        echo "::debug::Calling POST /email/verify/single"
+
+        RESPONSE=$(curl -s -w "\n%{http_code}" \
+          -X POST "https://api.enrow.io/email/verify/single" \
+          -H "Content-Type: application/json" \
+          -H "x-api-key: $API_KEY" \
+          -d "$PAYLOAD")
+
+        HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+        BODY=$(echo "$RESPONSE" | sed '$d')
+
+        if [ "$HTTP_CODE" -ge 400 ]; then
+          echo "::error::API returned HTTP $HTTP_CODE: $BODY"
+          exit 1
+        fi
+
+        ID=$(echo "$BODY" | jq -r '.id // empty')
+        QUALIFICATION=$(echo "$BODY" | jq -r '.qualification // empty')
+
+        # Poll if wait=true and no qualification yet
+        if [ "$WAIT" = "true" ] && [ -z "$QUALIFICATION" ] && [ -n "$ID" ]; then
+          echo "::debug::Polling for result (id=$ID)"
+          ELAPSED=0
+          while [ "$ELAPSED" -lt 30 ]; do
+            sleep 3
+            ELAPSED=$((ELAPSED + 3))
+
+            POLL=$(curl -s -w "\n%{http_code}" \
+              -X GET "https://api.enrow.io/email/verify/single?id=$ID" \
+              -H "x-api-key: $API_KEY")
+
+            POLL_CODE=$(echo "$POLL" | tail -1)
+            BODY=$(echo "$POLL" | sed '$d')
+
+            if [ "$POLL_CODE" -ge 400 ]; then
+              echo "::error::Poll returned HTTP $POLL_CODE: $BODY"
+              exit 1
+            fi
+
+            QUALIFICATION=$(echo "$BODY" | jq -r '.qualification // empty')
+            if [ -n "$QUALIFICATION" ]; then
+              break
+            fi
+          done
+
+          if [ -z "$QUALIFICATION" ]; then
+            echo "::warning::Verification still pending after 30 seconds (id=$ID)"
+          fi
+        fi
+
+        # Set outputs
+        {
+          echo "id=$ID"
+          echo "qualification=$(echo "$BODY" | jq -r '.qualification // empty')"
+        } >> "$GITHUB_OUTPUT"
+
+        {
+          echo "raw<<ENROW_EOF"
+          echo "$BODY"
+          echo "ENROW_EOF"
+        } >> "$GITHUB_OUTPUT"
