@@ -1,12 +1,16 @@
 # Verify Email Action
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
+[![GitHub stars](https://img.shields.io/github/stars/EnrowAPI/verify-email-action)](https://github.com/EnrowAPI/verify-email-action)
+[![Last commit](https://img.shields.io/github/last-commit/EnrowAPI/verify-email-action)](https://github.com/EnrowAPI/verify-email-action/commits)
+
 GitHub Action to verify if an email address is deliverable. Powered by [Enrow](https://enrow.io).
 
 ## Usage
 
 ```yaml
 - name: Verify email
-  uses: enrow/verify-email-action@v1
+  uses: EnrowAPI/verify-email-action@v1
   id: enrow
   with:
     api_key: ${{ secrets.ENROW_API_KEY }}
